@@ -37,96 +37,114 @@ import org.slf4j.LoggerFactory;
 public class GetAppStartCommand extends AbstractCFCommand {
 	private final Logger logger = LoggerFactory.getLogger("org.eclipse.orion.server.cf"); //$NON-NLS-1$
 
+	interface IStrategy {
+		/**
+		 * @return The start command, or null if this strategy could not determine the command.
+		 */
+		String run(App app, PackageJSON packageJSON);
+	}
+
+	/**
+	 * Gets the start command from the manifest.yml.
+	 */
+	private final IStrategy fromManifest = new IStrategy() {
+		@Override
+		public String run(App app, PackageJSON packageJSON) {
+			try {
+				ManifestParseTree applicationNode = app.getManifest().get(CFProtocolConstants.V2_KEY_APPLICATIONS).get(0);
+				ManifestParseTree commandNode = applicationNode.getOpt(CFProtocolConstants.V2_KEY_COMMAND);
+				return (commandNode != null) ? commandNode.getValue() : null; //$NON-NLS-1$
+			} catch (InvalidAccessException e) {
+				return null;
+			}
+		}
+	};
+
+	/**
+	 * Gets the <tt>web</tt> process type from a Procfile.
+	 */
+	private final IStrategy fromProcfile = new IStrategy() {
+		@Override
+		public String run(App app, PackageJSON packageJSON) {
+			IFileStore procfileStore = app.getAppStore().getChild(CFNodeJSConstants.PROCFILE_FILE_NAME);
+			IFileInfo procfileInfo = procfileStore.fetchInfo();
+			if (!procfileInfo.exists() || procfileInfo.isDirectory())
+				return null;
+
+			try {
+				IProcfileEntry[] entries = ProcfileUtils.parseProcfile(procfileStore);
+				for (IProcfileEntry entry : entries) {
+					if (CFNodeJSConstants.PROCESS_TYPE_WEB.equals(entry.getProcessType()))
+						return entry.getCommand();
+				}
+				return null;
+			} catch (IOException e) {
+				logger.error(e.getMessage(), e);
+				return null;
+			} catch (CoreException e) {
+				logger.error(e.getMessage(), e);
+				return null;
+			}
+		}
+	};
+
+	/**
+	 * Gets the "start" script given in the "scripts" section of the package.json file.
+	 */
+	private final IStrategy fromNPMStartScript = new IStrategy() {
+		@Override
+		public String run(App app, PackageJSON packageJSON) {
+			if (packageJSON == null)
+				return null;
+			try {
+				JSONObject scripts = packageJSON.getJSON().getJSONObject(CFNodeJSConstants.KEY_NPM_SCRIPTS);
+				return scripts.getString(CFNodeJSConstants.KEY_NPM_SCRIPTS_START);
+			} catch (JSONException e) {
+				// Field not present or not of the expected type
+				return null;
+			}
+		}
+	};
+
+	/**
+	 * Gets a command of <tt>"node server.js"</tt>, if a file exists named server.js.
+	 */
+	private final IStrategy fromServerJSFile = new IStrategy() {
+		@Override
+		public String run(App app, PackageJSON packageJSON) {
+			IFileStore store = app.getAppStore();
+			IFileInfo serverJS = store.getChild(CFNodeJSConstants.SERVER_JS_FILE_NAME).fetchInfo();
+			if (!serverJS.exists() || serverJS.isDirectory())
+				return null;
+			return NLS.bind(CFNodeJSConstants.START_SERVER_COMMAND, CFNodeJSConstants.SERVER_JS_FILE_NAME);
+		};
+	};
+
+	private final IStrategy[] STRATEGIES = new IStrategy[] {fromManifest, fromProcfile, fromNPMStartScript, fromServerJSFile};
+
 	private App app;
-	private ManifestParseTree manifest;
 	private PackageJSON packageJSON;
 	private String command;
 
 	protected GetAppStartCommand(Target target, App app, PackageJSON packageJSON) {
 		super(target);
 		this.app = app;
-		this.manifest = app.getManifest();
 		this.packageJSON = packageJSON;
 	}
 
 	@Override
 	protected ServerStatus _doIt() {
-		command = getStartCommandFromManifest();
-		command = command != null ? command : getStartCommandFromProcfile();
-		command = command != null ? command : getStartCommandFromPackageJSON();
-		command = command != null ? command : getStartCommandFromServerJS();
-
-		if (command == null)
-			return new ServerStatus(IStatus.ERROR, HttpServletResponse.SC_BAD_REQUEST, "Could not determine application start command.", null);
-		return new ServerStatus(IStatus.OK, HttpServletResponse.SC_OK, null, null, null);
+		for (IStrategy strategy : STRATEGIES) {
+			if ((this.command = strategy.run(app, packageJSON)) != null) {
+				// Found one
+				return new ServerStatus(IStatus.OK, HttpServletResponse.SC_OK, null, null, null);
+			}
+		}
+		return new ServerStatus(IStatus.ERROR, HttpServletResponse.SC_BAD_REQUEST, "Could not determine application start command.", null);
 	}
 
 	public String getCommand() {
 		return this.command;
-	}
-
-	/**
-	 * @return The command as given in the manifest, or null.
-	 */
-	private String getStartCommandFromManifest() {
-		try {
-			ManifestParseTree applicationNode = manifest.get(CFProtocolConstants.V2_KEY_APPLICATIONS).get(0);
-			ManifestParseTree commandNode = applicationNode.getOpt(CFProtocolConstants.V2_KEY_COMMAND);
-			return (commandNode != null) ? commandNode.getValue() : null; //$NON-NLS-1$
-		} catch (InvalidAccessException e) {
-			return null;
-		}
-	}
-
-	/**
-	 * @return The <tt>web</tt> command if a <tt>Procfile</tt> exists and has such a command. Otherwise, null. 
-	 */
-	private String getStartCommandFromProcfile() {
-		IFileStore procfileStore = app.getAppStore().getChild(CFNodeJSConstants.PROCFILE_FILE_NAME);
-		IFileInfo procfileInfo = procfileStore.fetchInfo();
-		if (!procfileInfo.exists() || procfileInfo.isDirectory())
-			return null;
-
-		try {
-			IProcfileEntry[] entries = ProcfileUtils.parseProcfile(procfileStore);
-			for (IProcfileEntry entry : entries) {
-				if (CFNodeJSConstants.PROCESS_TYPE_WEB.equals(entry.getProcessType()))
-					return entry.getCommand();
-			}
-			return null;
-		} catch (IOException e) {
-			logger.error(e.getMessage(), e);
-			return null;
-		} catch (CoreException e) {
-			logger.error(e.getMessage(), e);
-			return null;
-		}
-	}
-
-	/**
-	 * @return The scripts::start string, if a <tt>package.json</tt> file exists and has such a string. Otherwise, null.
-	 */
-	private String getStartCommandFromPackageJSON() {
-		if (packageJSON == null)
-			return null;
-		try {
-			JSONObject scripts = packageJSON.getJSON().getJSONObject(CFNodeJSConstants.KEY_NPM_SCRIPTS);
-			return scripts.getString(CFNodeJSConstants.KEY_NPM_SCRIPTS_START);
-		} catch (JSONException e) {
-			// Field not present or not of the expected type
-			return null;
-		}
-	}
-
-	/**
-	 * @return <tt>"node server.js"</tt>, if a file exists named <tt>server.js</tt>. Otherwise, null.
-	 */
-	private String getStartCommandFromServerJS() {
-		IFileStore store = app.getAppStore();
-		IFileInfo serverJS = store.getChild(CFNodeJSConstants.SERVER_JS_FILE_NAME).fetchInfo();
-		if (!serverJS.exists() || serverJS.isDirectory())
-			return null;
-		return NLS.bind(CFNodeJSConstants.START_SERVER_COMMAND, CFNodeJSConstants.SERVER_JS_FILE_NAME);
 	}
 
 }

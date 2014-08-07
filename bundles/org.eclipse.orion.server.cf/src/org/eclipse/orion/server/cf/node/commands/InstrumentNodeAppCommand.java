@@ -1,14 +1,18 @@
 package org.eclipse.orion.server.cf.node.commands;
 
+import java.io.IOException;
 import java.text.MessageFormat;
 import javax.servlet.http.HttpServletResponse;
+import org.eclipse.core.filesystem.EFS;
+import org.eclipse.core.filesystem.IFileStore;
 import org.eclipse.core.runtime.IStatus;
-import org.eclipse.orion.server.cf.manifest.v2.InvalidAccessException;
+import org.eclipse.orion.server.cf.manifest.v2.utils.ManifestConstants;
 import org.eclipse.orion.server.cf.node.CFNodeJSConstants;
 import org.eclipse.orion.server.cf.node.objects.PackageJSON;
 import org.eclipse.orion.server.cf.objects.App;
 import org.eclipse.orion.server.cf.objects.Target;
 import org.eclipse.orion.server.cf.utils.MultiServerStatus;
+import org.eclipse.orion.server.core.IOUtilities;
 import org.eclipse.orion.server.core.ServerStatus;
 import org.eclipse.osgi.util.NLS;
 import org.json.JSONException;
@@ -37,6 +41,11 @@ public class InstrumentNodeAppCommand extends AbstractNodeCFCommand {
 	protected ServerStatus _doIt() {
 		MultiServerStatus status = new MultiServerStatus();
 
+		// Check permissions to app ContentLocation
+		// TODO! refactor this into the DebugHandler 
+		if (true)
+			throw new RuntimeException("Finish " + this.getClass());
+
 		// Get the package.json file
 		GetAppPackageJSONCommand getPackageJsonCommand = new GetAppPackageJSONCommand(target, app);
 		ServerStatus jobStatus = (ServerStatus) getPackageJsonCommand.doIt(); /* FIXME: unsafe type cast */
@@ -44,8 +53,6 @@ public class InstrumentNodeAppCommand extends AbstractNodeCFCommand {
 		if (!jobStatus.isOK())
 			return status;
 		PackageJSON packageJSON = getPackageJsonCommand.getPackageJSON();
-
-		// Check permissions to app ContentLocation
 
 		// Find the app start command
 		GetAppStartCommand getStartCommand = new GetAppStartCommand(target, app, packageJSON);
@@ -59,14 +66,21 @@ public class InstrumentNodeAppCommand extends AbstractNodeCFCommand {
 			String modifiedStartCommand = this.getDebugStartCommand(getStartCommand.getCommand());
 			PackageJSON modifiedPackageJSON = getModifiedPackageJSON(packageJSON, modifiedStartCommand);
 			String modifiedManifest = getModifiedManifest(modifiedStartCommand);
-			// TODO if a Procfile exists we should modify it as well
 
 			// Write the modified files to the app folder
-			//			File file = PackageUtils.getApplicationPackage(app.getAppStore());
-			//			File modifiedFile = getModifiedZip(file, modifiedPackageJSON, modifiedManifest);
-			//			file.delete(); // delete the old one
+			IFileStore appStore = app.getAppStore();
+			IOUtilities.pipe(IOUtilities.toInputStream(modifiedManifest), appStore.getChild(ManifestConstants.MANIFEST_FILE_NAME).openOutputStream(EFS.NONE, null));
+			IOUtilities.pipe(IOUtilities.toInputStream(modifiedPackageJSON.getJSON().toString()), appStore.getChild(CFNodeJSConstants.PACKAGE_JSON_FILE_NAME).openOutputStream(EFS.NONE, null));
+			// TODO if a Procfile exists should we modify it as well?
 
 			return status;
+		} /*catch (InvalidAccessException e) {
+			// problem parsing the manifest
+			} */catch (IOException e) {
+			// problem writing one or more of the modified files
+			String msg = NLS.bind("An exception occurred while instrumenting the application: {0}", e.getMessage());
+			logger.error(msg, e);
+			return new ServerStatus(IStatus.ERROR, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, msg, e);
 		} catch (Exception e) {
 			String msg = NLS.bind("An exception occurred while performing operation {0}", commandName);
 			logger.error(msg, e);
@@ -100,7 +114,7 @@ public class InstrumentNodeAppCommand extends AbstractNodeCFCommand {
 		}
 	}
 
-	private String getModifiedManifest(String modifiedStartCommand) throws InvalidAccessException {
+	private String getModifiedManifest(String modifiedStartCommand) {
 		// TODO create setters on ManifestParseTree. Then clone app.getManifest() and call setters instead
 		String manifest = app.getManifest().toString();
 		return manifest.replaceFirst(" command: .+$", " command: " + modifiedStartCommand);

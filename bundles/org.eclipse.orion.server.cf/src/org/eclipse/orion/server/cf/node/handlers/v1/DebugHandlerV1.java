@@ -20,10 +20,10 @@ import org.eclipse.orion.internal.server.servlets.ServletResourceHandler;
 import org.eclipse.orion.server.cf.CFProtocolConstants;
 import org.eclipse.orion.server.cf.commands.*;
 import org.eclipse.orion.server.cf.jobs.CFJob;
-import org.eclipse.orion.server.cf.manifest.v2.InvalidAccessException;
 import org.eclipse.orion.server.cf.manifest.v2.ManifestParseTree;
 import org.eclipse.orion.server.cf.node.objects.Debug;
-import org.eclipse.orion.server.cf.objects.*;
+import org.eclipse.orion.server.cf.objects.App;
+import org.eclipse.orion.server.cf.objects.Target;
 import org.eclipse.orion.server.cf.servlets.AbstractRESTHandler;
 import org.eclipse.orion.server.core.IOUtilities;
 import org.eclipse.orion.server.core.ServerStatus;
@@ -87,12 +87,10 @@ public class DebugHandlerV1 extends AbstractRESTHandler<Debug> {
 					if (!result.isOK())
 						return result;
 
-					// Do the actual GetAppInstrumentationState command here
-				} catch (InvalidAccessException e) {
-					String msg = NLS.bind("An error occurred while getting the application manifest: {0}", e.getMessage()); //$NON-NLS-1$
-					ServerStatus status = new ServerStatus(IStatus.ERROR, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, msg, e);
-					logger.error(msg, e);
-					return status;
+					// TODO the actual GetAppInstrumentationState command here
+					if (true)
+						throw new RuntimeException("Finish me");
+					return null;
 				} catch (Exception e) {
 					String msg = NLS.bind("Failed to handle request for {0}", path); //$NON-NLS-1$
 					ServerStatus status = new ServerStatus(IStatus.ERROR, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, msg, e);
@@ -229,9 +227,6 @@ public class DebugHandlerV1 extends AbstractRESTHandler<Debug> {
 		final JSONObject targetJSON = extractJSONData(IOUtilities.getQueryParameter(request, CFProtocolConstants.KEY_TARGET));
 
 		IPath path = new Path(pathString);
-		final String appGuid = path.segment(0);
-		boolean deleteRoute = "routes".equals(path.segment(1));
-		final String routeGuid = deleteRoute ? path.segment(2) : null;
 
 		return new CFJob(request, false) {
 			@Override
@@ -243,20 +238,12 @@ public class DebugHandlerV1 extends AbstractRESTHandler<Debug> {
 						return status;
 					Target target = computeTarget.getTarget();
 
-					GetAppByGuidCommand getAppByGuid = new GetAppByGuidCommand(target.getCloud(), appGuid);
-					IStatus getAppByGuidStatus = getAppByGuid.doIt();
-					if (!getAppByGuidStatus.isOK())
-						return getAppByGuidStatus;
-					App app = getAppByGuid.getApp();
+					// TODO call Uninstrument here
+					if (true)
+						throw new RuntimeException("TODO finish " + this.getClass());
+					//return uninstrument.doIt();
+					return null;
 
-					GetRouteByGuidCommand getRouteByGuid = new GetRouteByGuidCommand(target.getCloud(), routeGuid);
-					IStatus getRouteByGuidStatus = getRouteByGuid.doIt();
-					if (!getRouteByGuidStatus.isOK())
-						return getRouteByGuidStatus;
-					Route route = getRouteByGuid.getRoute();
-
-					UnmapRouteCommand unmapRoute = new UnmapRouteCommand(target, app, route);
-					return unmapRoute.doIt();
 				} catch (Exception e) {
 					String msg = NLS.bind("Failed to handle request for {0}", pathString); //$NON-NLS-1$
 					ServerStatus status = new ServerStatus(IStatus.ERROR, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, msg, e);
@@ -266,5 +253,4 @@ public class DebugHandlerV1 extends AbstractRESTHandler<Debug> {
 			}
 		};
 	}
-
 }
