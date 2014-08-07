@@ -1,20 +1,14 @@
 package org.eclipse.orion.server.cf.node.commands;
 
-import java.io.*;
 import java.text.MessageFormat;
-import java.util.Enumeration;
-import java.util.UUID;
-import java.util.zip.*;
 import javax.servlet.http.HttpServletResponse;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.orion.server.cf.manifest.v2.InvalidAccessException;
-import org.eclipse.orion.server.cf.manifest.v2.utils.ManifestConstants;
 import org.eclipse.orion.server.cf.node.CFNodeJSConstants;
 import org.eclipse.orion.server.cf.node.objects.PackageJSON;
 import org.eclipse.orion.server.cf.objects.App;
 import org.eclipse.orion.server.cf.objects.Target;
 import org.eclipse.orion.server.cf.utils.MultiServerStatus;
-import org.eclipse.orion.server.core.IOUtilities;
 import org.eclipse.orion.server.core.ServerStatus;
 import org.eclipse.osgi.util.NLS;
 import org.json.JSONException;
@@ -34,7 +28,7 @@ public class InstrumentNodeAppCommand extends AbstractNodeCFCommand {
 
 	public InstrumentNodeAppCommand(Target target, App app, String password, String urlPrefix) {
 		super(target, app);
-		this.commandName = NLS.bind("Instrument app {0} for debug (guid: {1})", new String[] {app.getName(), app.getGuid()});
+		this.commandName = NLS.bind("Instrument app {0} for debug", new String[] {app.getName()});
 		this.password = password;
 		this.urlPrefix = urlPrefix == null ? "" : urlPrefix;
 	}
@@ -54,7 +48,7 @@ public class InstrumentNodeAppCommand extends AbstractNodeCFCommand {
 		// Check permissions to app ContentLocation
 
 		// Find the app start command
-		GetAppStartCommandCommand getStartCommand = new GetAppStartCommandCommand(target, app, packageJSON);
+		GetAppStartCommand getStartCommand = new GetAppStartCommand(target, app, packageJSON);
 		jobStatus = (ServerStatus) getStartCommand.doIt(); /* FIXME: unsafe type cast */
 		status.add(jobStatus);
 		if (!jobStatus.isOK())
@@ -64,8 +58,8 @@ public class InstrumentNodeAppCommand extends AbstractNodeCFCommand {
 			// Create the modified manifest and package.json
 			String modifiedStartCommand = this.getDebugStartCommand(getStartCommand.getCommand());
 			PackageJSON modifiedPackageJSON = getModifiedPackageJSON(packageJSON, modifiedStartCommand);
-			// TODO write a modified Procfile as well?
 			String modifiedManifest = getModifiedManifest(modifiedStartCommand);
+			// TODO if a Procfile exists we should modify it as well
 
 			// Write the modified files to the app folder
 			//			File file = PackageUtils.getApplicationPackage(app.getAppStore());
@@ -81,64 +75,6 @@ public class InstrumentNodeAppCommand extends AbstractNodeCFCommand {
 		}
 	}
 
-	/**
-	 * Returns a copy of the given application package with certain files replaced.
-	 * @param file The original application package zip.
-	 * @param modifiedPackageJSON The modified package.json to inject.
-	 * @param modifiedManifest The modified manifest.yml to inject.
-	 * @return The modified application package.
-	 */
-	private File getModifiedZip(File file, PackageJSON modifiedPackageJSON, String modifiedManifest) throws IOException, FileNotFoundException {
-		ZipFile zip = null;
-		ZipOutputStream zos = null;
-		File newFile = null;
-		try {
-			zip = new ZipFile(file);
-			newFile = File.createTempFile(UUID.randomUUID().toString(), ".zip"); //$NON-NLS-1$
-			zos = new ZipOutputStream(new FileOutputStream(newFile));
-
-			// Generate a new zip by iterating the old one and replacing the 2 special files
-			for (Enumeration<? extends ZipEntry> entries = zip.entries(); entries.hasMoreElements();) {
-				ZipEntry entry = entries.nextElement();
-				if (entry.isDirectory()) {
-					zos.putNextEntry(entry);
-				} else {
-					String name = entry.getName();
-					if (CFNodeJSConstants.PACKAGE_JSON_FILE_NAME.equals(name)) {
-						// Write the modified package.json
-						zos.putNextEntry(new ZipEntry(name));
-						zos.write(modifiedPackageJSON.getJSON().toString().getBytes("UTF-8")); //$NON-NLS-1$
-					} else if (ManifestConstants.MANIFEST_FILE_NAME.equals(name)) {
-						// Write the modified manifest.yml
-						zos.putNextEntry(new ZipEntry(name));
-						zos.write(modifiedManifest.getBytes("UTF-8")); //$NON-NLS-1$
-					} else {
-						// Just write the existing entry as-is
-						zos.putNextEntry(entry);
-						IOUtilities.pipe(zip.getInputStream(entry), zos);
-					}
-				}
-				zos.closeEntry();
-			}
-			return newFile;
-		} catch (UnsupportedEncodingException e) {
-			// can't happen
-			throw new RuntimeException(e);
-		} catch (IOException e) {
-			// Clean up
-			if (newFile != null)
-				newFile.delete();
-			throw e;
-		} finally {
-			IOUtilities.safeClose(zos);
-			// ZipFile doesn't implement Closeable
-			try {
-				zip.close();
-			} catch (Exception e) {
-			}
-		}
-	}
-
 	private PackageJSON getModifiedPackageJSON(PackageJSON originalPackage, String modifiedStartCommand) {
 		JSONObject original = originalPackage.getJSON();
 		try {
@@ -151,9 +87,7 @@ public class InstrumentNodeAppCommand extends AbstractNodeCFCommand {
 			deps.put(CFNodeJSConstants.KEY_CF_LAUNCHER_PACKAGE, CFNodeJSConstants.VALUE_CF_LAUNCHER_VERSION);
 			modified.put(CFNodeJSConstants.KEY_NPM_DEPENDENCIES, deps);
 
-			// Add or update start script
-			// TODO: verify that this is needed -- does the CF buildpack always generated a Procfile referencing npm start?
-			// 
+			// Add or update npm start script
 			JSONObject scripts = modified.optJSONObject(CFNodeJSConstants.KEY_NPM_SCRIPTS);
 			if (scripts == null)
 				scripts = new JSONObject();

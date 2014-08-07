@@ -23,28 +23,34 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class GetAppStartCommandCommand extends AbstractCFCommand {
+/**
+ * Determines the start command for a Node.js application.
+ * 
+ * <p>To determine the start command, we use the same algorithm as the CF Buildpack for Node.js, ie. check for:</p>
+ * <ol>
+ * <li>"command" in <tt>manifest.yml</tt></li>
+ * <li>"web" process in <tt>Procfile</tt></li>
+ * <li>"start" script in <tt>package.json</tt></li>
+ * <li>a file named <tt>server.js</tt></li>
+ * </ol>
+ */
+public class GetAppStartCommand extends AbstractCFCommand {
 	private final Logger logger = LoggerFactory.getLogger("org.eclipse.orion.server.cf"); //$NON-NLS-1$
 
 	private App app;
-	private String command;
+	private ManifestParseTree manifest;
 	private PackageJSON packageJSON;
+	private String command;
 
-	protected GetAppStartCommandCommand(Target target, App app, PackageJSON packageJSON) {
+	protected GetAppStartCommand(Target target, App app, PackageJSON packageJSON) {
 		super(target);
 		this.app = app;
+		this.manifest = app.getManifest();
 		this.packageJSON = packageJSON;
 	}
 
 	@Override
 	protected ServerStatus _doIt() {
-		/* To determine the start command, use the same algorithm as the CF Buildpack for Node.js.
-		 * We check for:
-		 * 1) "command" in manifest.yml
-		 * 2) "web" process in Procfile
-		 * 3) "start" script in package.json
-		 * 4) a file named server.js
-		 */
 		command = getStartCommandFromManifest();
 		command = command != null ? command : getStartCommandFromProcfile();
 		command = command != null ? command : getStartCommandFromPackageJSON();
@@ -64,7 +70,6 @@ public class GetAppStartCommandCommand extends AbstractCFCommand {
 	 */
 	private String getStartCommandFromManifest() {
 		try {
-			ManifestParseTree manifest = app.getManifest();
 			ManifestParseTree applicationNode = manifest.get(CFProtocolConstants.V2_KEY_APPLICATIONS).get(0);
 			ManifestParseTree commandNode = applicationNode.getOpt(CFProtocolConstants.V2_KEY_COMMAND);
 			return (commandNode != null) ? commandNode.getValue() : null; //$NON-NLS-1$

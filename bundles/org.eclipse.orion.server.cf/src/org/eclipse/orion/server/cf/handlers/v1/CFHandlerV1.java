@@ -15,6 +15,8 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.eclipse.core.runtime.*;
 import org.eclipse.orion.internal.server.servlets.ServletResourceHandler;
+import org.eclipse.orion.server.cf.node.handlers.v1.DebugHandlerV1;
+import org.eclipse.orion.server.cf.node.objects.Debug;
 import org.eclipse.orion.server.cf.objects.*;
 
 /**
@@ -29,6 +31,7 @@ public class CFHandlerV1 extends ServletResourceHandler<String> {
 	private ServletResourceHandler<String> orgsHandlerV1;
 	private ServletResourceHandler<String> spacesHandlerV1;
 	private ServletResourceHandler<String> routesHandlerV1;
+	private ServletResourceHandler<String> debugHandlerV1;
 
 	public CFHandlerV1(ServletResourceHandler<IStatus> statusHandler) {
 		targetHandlerV1 = new TargetHandlerV1(statusHandler);
@@ -38,6 +41,7 @@ public class CFHandlerV1 extends ServletResourceHandler<String> {
 		orgsHandlerV1 = new OrgsHandlerV1(statusHandler);
 		spacesHandlerV1 = new SpacesHandlerV1(statusHandler);
 		routesHandlerV1 = new RoutesHandlerV1(statusHandler);
+		debugHandlerV1 = new DebugHandlerV1(statusHandler);
 	}
 
 	@Override
@@ -85,6 +89,8 @@ public class CFHandlerV1 extends ServletResourceHandler<String> {
 			return routesHandlerV1.handleRequest(request, response, pathString);
 		} else if (infoParts[1].equals(Space.RESOURCE)) {
 			return spacesHandlerV1.handleRequest(request, response, pathString);
+		} else if (infoParts[1].equals(Debug.RESOURCE)) {
+			return debugHandlerV1.handleRequest(request, response, pathString);
 		}
 
 		return false;

@@ -23,7 +23,7 @@ public class GetAppPackageJSONCommand extends AbstractNodeCFCommand {
 	private String commandName;
 
 	protected GetAppPackageJSONCommand(Target target, App app) {
-		super(target, app);
+		super(target);
 		this.commandName = NLS.bind("Get package.json for app: {0}", app.getName());
 	}
 
